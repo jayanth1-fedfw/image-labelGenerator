@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Image Labeler</title>
+  <style>
+    body { font-family: system-ui; max-width: 700px; margin: 2rem auto; padding: 0 1rem; }
+    input[type=file] { margin: 1rem 0; display: block; }
+    button { padding: 8px 20px; background: #1a73e8; color: white; border: none; border-radius: 6px; cursor: pointer; }
+    .tag { display: inline-block; background: #e8f0fe; color: #1a73e8; border-radius: 99px; padding: 4px 12px; font-size: 13px; margin: 3px; }
+    .result { border: 1px solid #eee; border-radius: 8px; padding: 1rem; margin-top: 1rem; }
+    img.thumb { max-width: 200px; border-radius: 6px; margin-top: 8px; }
+  </style>
+</head>
+<body>
+  <h1>🏷️ Image Label Generator</h1>
+  <input type="file" id="imageInput" accept="image/*" />
+  <button onclick="uploadImage()">Analyze Image</button>
+  <div id="output"></div>
+
+  <h2 style="margin-top:2rem;">History</h2>
+  {% for row in results %}
+  <div class="result">
+    <strong>{{ row[0] }}</strong> — {{ row[3] }}<br/>
+    <img class="thumb" src="{{ row[1] }}" />
+    <div style="margin-top:8px;">
+      {% for item in row[2] %}
+        <span class="tag">{{ item.label }} {{ (item.confidence * 100)|round|int }}%</span>
+      {% endfor %}
+    </div>
+  </div>
+  {% endfor %}
+
+  <script>
+    async function uploadImage() {
+      const file = document.getElementById('imageInput').files[0];
+      if (!file) return alert('Select an image first');
+      const form = new FormData();
+      form.append('image', file);
+      const res = await fetch('/upload', { method: 'POST', body: form });
+      const data = await res.json();
+      const tags = data.labels.map(l => `<span class="tag">${l.label} ${Math.round(l.confidence*100)}%</span>`).join('');
+      document.getElementById('output').innerHTML = `<div class="result"><strong>${data.filename}</strong><br/><img class="thumb" src="${data.url}"/><div style="margin-top:8px">${tags}</div></div>`;
+    }
+  </script>
+</body>
+</html>
