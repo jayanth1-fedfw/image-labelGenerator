@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: image-label-generator
+    runtime: python
+    buildCommand: pip install -r app/requirements.txt
+    startCommand: cd app && python main.py
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11
+      - key: PORT
+        value: 8080
