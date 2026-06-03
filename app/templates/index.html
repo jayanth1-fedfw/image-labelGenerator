@@ -1,45 +1,420 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <title>Image Labeler</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Image Label Generator</title>
   <style>
-    body { font-family: system-ui; max-width: 700px; margin: 2rem auto; padding: 0 1rem; }
-    input[type=file] { margin: 1rem 0; display: block; }
-    button { padding: 8px 20px; background: #1a73e8; color: white; border: none; border-radius: 6px; cursor: pointer; }
-    .tag { display: inline-block; background: #e8f0fe; color: #1a73e8; border-radius: 99px; padding: 4px 12px; font-size: 13px; margin: 3px; }
-    .result { border: 1px solid #eee; border-radius: 8px; padding: 1rem; margin-top: 1rem; }
-    img.thumb { max-width: 200px; border-radius: 6px; margin-top: 8px; }
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      padding: 2rem 1rem;
+    }
+
+    .container {
+      max-width: 900px;
+      margin: 0 auto;
+    }
+
+    .header {
+      text-align: center;
+      color: white;
+      margin-bottom: 3rem;
+    }
+
+    .header h1 {
+      font-size: 2.5rem;
+      font-weight: 700;
+      margin-bottom: 0.5rem;
+      text-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+
+    .header p {
+      font-size: 1.1rem;
+      opacity: 0.95;
+    }
+
+    .upload-section {
+      background: white;
+      border-radius: 16px;
+      padding: 3rem;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+      margin-bottom: 3rem;
+    }
+
+    .upload-area {
+      border: 2px dashed #667eea;
+      border-radius: 12px;
+      padding: 2.5rem;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      background: linear-gradient(135deg, rgba(102, 126, 234, 0.05) 0%, rgba(118, 75, 162, 0.05) 100%);
+    }
+
+    .upload-area:hover {
+      border-color: #764ba2;
+      background: linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%);
+    }
+
+    .upload-area.active {
+      border-color: #667eea;
+      background: linear-gradient(135deg, rgba(102, 126, 234, 0.15) 0%, rgba(118, 75, 162, 0.15) 100%);
+    }
+
+    .upload-icon {
+      font-size: 3rem;
+      margin-bottom: 1rem;
+    }
+
+    .upload-text {
+      color: #333;
+      font-size: 1rem;
+      margin-bottom: 0.5rem;
+    }
+
+    .upload-subtext {
+      color: #666;
+      font-size: 0.9rem;
+    }
+
+    #imageInput {
+      display: none;
+    }
+
+    .button-group {
+      display: flex;
+      gap: 1rem;
+      margin-top: 2rem;
+      justify-content: center;
+    }
+
+    button {
+      padding: 12px 32px;
+      font-size: 1rem;
+      font-weight: 600;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+    }
+
+    .btn-primary:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 25px rgba(102, 126, 234, 0.4);
+    }
+
+    .btn-primary:active {
+      transform: translateY(0);
+    }
+
+    .btn-secondary {
+      background: white;
+      color: #667eea;
+      border: 2px solid #667eea;
+    }
+
+    .btn-secondary:hover {
+      background: #f8f9ff;
+      transform: translateY(-2px);
+    }
+
+    .loading {
+      display: none;
+      text-align: center;
+      padding: 2rem;
+    }
+
+    .spinner {
+      border: 4px solid #f0f0f0;
+      border-top: 4px solid #667eea;
+      border-radius: 50%;
+      width: 40px;
+      height: 40px;
+      animation: spin 0.8s linear infinite;
+      margin: 0 auto 1rem;
+    }
+
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    .results-section {
+      margin-top: 2rem;
+    }
+
+    .section-title {
+      color: white;
+      font-size: 1.5rem;
+      font-weight: 600;
+      margin-bottom: 1.5rem;
+      margin-top: 2rem;
+    }
+
+    .result-card {
+      background: white;
+      border-radius: 12px;
+      padding: 1.5rem;
+      margin-bottom: 1.5rem;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+      transition: all 0.3s ease;
+      overflow: hidden;
+    }
+
+    .result-card:hover {
+      transform: translateY(-4px);
+      box-shadow: 0 15px 40px rgba(0,0,0,0.3);
+    }
+
+    .result-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: start;
+      margin-bottom: 1rem;
+    }
+
+    .result-filename {
+      font-size: 1.1rem;
+      font-weight: 600;
+      color: #333;
+      word-break: break-word;
+    }
+
+    .result-timestamp {
+      color: #999;
+      font-size: 0.85rem;
+    }
+
+    .result-image {
+      border-radius: 8px;
+      max-width: 100%;
+      max-height: 300px;
+      margin: 1rem 0;
+      display: block;
+    }
+
+    .tags-container {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      margin-top: 1rem;
+    }
+
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 6px 14px;
+      border-radius: 20px;
+      font-size: 0.9rem;
+      font-weight: 500;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+    }
+
+    .tag.high-confidence {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    }
+
+    .tag.medium-confidence {
+      background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+    }
+
+    .tag.low-confidence {
+      background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+    }
+
+    .confidence-badge {
+      font-size: 0.8rem;
+      opacity: 0.9;
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 3rem 1rem;
+      color: #999;
+    }
+
+    .empty-state-icon {
+      font-size: 4rem;
+      margin-bottom: 1rem;
+      opacity: 0.5;
+    }
+
+    @media (max-width: 640px) {
+      .header h1 {
+        font-size: 1.8rem;
+      }
+
+      .upload-section {
+        padding: 1.5rem;
+      }
+
+      .button-group {
+        flex-direction: column;
+      }
+
+      button {
+        width: 100%;
+      }
+    }
   </style>
 </head>
 <body>
-  <h1>🏷️ Image Label Generator</h1>
-  <input type="file" id="imageInput" accept="image/*" />
-  <button onclick="uploadImage()">Analyze Image</button>
-  <div id="output"></div>
+  <div class="container">
+    <div class="header">
+      <h1>🏷️ Image Label Generator</h1>
+      <p>Powered by AI Vision</p>
+    </div>
 
-  <h2 style="margin-top:2rem;">History</h2>
-  {% for row in results %}
-  <div class="result">
-    <strong>{{ row[0] }}</strong> — {{ row[3] }}<br/>
-    <img class="thumb" src="{{ row[1] }}" />
-    <div style="margin-top:8px;">
-      {% for item in row[2] %}
-        <span class="tag">{{ item.label }} {{ (item.confidence * 100)|round|int }}%</span>
-      {% endfor %}
+    <div class="upload-section">
+      <div class="upload-area" onclick="document.getElementById('imageInput').click()">
+        <div class="upload-icon">📸</div>
+        <div class="upload-text">Click to upload or drag and drop</div>
+        <div class="upload-subtext">PNG, JPG, WebP up to 10MB</div>
+      </div>
+      <input type="file" id="imageInput" accept="image/*" />
+      
+      <div id="loading" class="loading">
+        <div class="spinner"></div>
+        <p>Analyzing image...</p>
+      </div>
+
+      <div class="button-group">
+        <button class="btn-primary" onclick="uploadImage()">🚀 Analyze Image</button>
+        <button class="btn-secondary" onclick="clearInput()">Clear</button>
+      </div>
+    </div>
+
+    <div id="output"></div>
+
+    <div class="results-section">
+      <div class="section-title">📚 History</div>
+      {% if results %}
+        {% for row in results %}
+        <div class="result-card">
+          <div class="result-header">
+            <div>
+              <div class="result-filename">{{ row[1] }}</div>
+              <div class="result-timestamp">{{ row[5] }}</div>
+            </div>
+          </div>
+          {% if row[2] != 'local' %}
+            <img class="result-image" src="{{ row[2] }}" alt="Result" />
+          {% endif %}
+          <div class="tags-container">
+            {% for item in row[3] %}
+              <span class="tag {% if item.tier == 'high' %}high-confidence{% elif item.tier == 'medium' %}medium-confidence{% else %}low-confidence{% endif %}">
+                {{ item.label }}
+                <span class="confidence-badge">{{ (item.confidence * 100)|round|int }}%</span>
+              </span>
+            {% endfor %}
+          </div>
+        </div>
+        {% endfor %}
+      {% else %}
+        <div class="empty-state">
+          <div class="empty-state-icon">📭</div>
+          <p>No results yet. Upload an image to get started!</p>
+        </div>
+      {% endif %}
     </div>
   </div>
-  {% endfor %}
 
   <script>
+    const uploadArea = document.querySelector('.upload-area');
+    const imageInput = document.getElementById('imageInput');
+    const loading = document.getElementById('loading');
+
+    // Drag and drop
+    uploadArea.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      uploadArea.classList.add('active');
+    });
+
+    uploadArea.addEventListener('dragleave', () => {
+      uploadArea.classList.remove('active');
+    });
+
+    uploadArea.addEventListener('drop', (e) => {
+      e.preventDefault();
+      uploadArea.classList.remove('active');
+      const files = e.dataTransfer.files;
+      if (files.length > 0) {
+        imageInput.files = files;
+        uploadImage();
+      }
+    });
+
+    imageInput.addEventListener('change', () => {
+      if (imageInput.files.length > 0) {
+        uploadImage();
+      }
+    });
+
     async function uploadImage() {
-      const file = document.getElementById('imageInput').files[0];
-      if (!file) return alert('Select an image first');
+      const file = imageInput.files[0];
+      if (!file) {
+        alert('Please select an image');
+        return;
+      }
+
+      loading.style.display = 'block';
       const form = new FormData();
       form.append('image', file);
-      const res = await fetch('/upload', { method: 'POST', body: form });
-      const data = await res.json();
-      const tags = data.labels.map(l => `<span class="tag">${l.label} ${Math.round(l.confidence*100)}%</span>`).join('');
-      document.getElementById('output').innerHTML = `<div class="result"><strong>${data.filename}</strong><br/><img class="thumb" src="${data.url}"/><div style="margin-top:8px">${tags}</div></div>`;
+
+      try {
+        const res = await fetch('/upload', { method: 'POST', body: form });
+        const data = await res.json();
+
+        if (!data.success) {
+          alert('Error: ' + data.error);
+          loading.style.display = 'none';
+          return;
+        }
+
+        const tags = data.results.map(l => {
+          const tier = l.tier || 'low';
+          const confidence = Math.round(l.confidence * 100);
+          return `<span class="tag ${tier}-confidence">${l.label} <span class="confidence-badge">${confidence}%</span></span>`;
+        }).join('');
+
+        const output = `
+          <div class="result-card">
+            <div class="result-header">
+              <div class="result-filename">✨ ${data.filename}</div>
+            </div>
+            <div class="tags-container">${tags}</div>
+          </div>
+        `;
+
+        document.getElementById('output').innerHTML = output;
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      } catch (error) {
+        alert('Error uploading image: ' + error);
+      } finally {
+        loading.style.display = 'none';
+      }
+    }
+
+    function clearInput() {
+      imageInput.value = '';
+      document.getElementById('output').innerHTML = '';
     }
   </script>
 </body>
