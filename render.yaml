@@ -3,9 +3,13 @@ services:
     name: image-label-generator
     runtime: python
     buildCommand: pip install -r app/requirements.txt
-    startCommand: cd app && python main.py
+    startCommand: cd app && gunicorn --bind 0.0.0.0:$PORT --workers 1 --timeout 120 main:app
     envVars:
       - key: PYTHON_VERSION
         value: 3.11
-      - key: PORT
-        value: 8080
+      - key: OPENAI_MODEL
+        value: gpt-4o-mini
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: HF_API_KEY
+        sync: false
