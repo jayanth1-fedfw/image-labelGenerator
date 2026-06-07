@@ -9,9 +9,18 @@ from db import init_db, save_result, get_all_results
 load_dotenv()
 app = Flask(__name__)
 
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY") or os.getenv("HF_API_KEY")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 OPENAI_MODEL = os.getenv("OPENAI_VISION_MODEL") or os.getenv("OPENAI_MODEL") or "gpt-4o-mini"
 OPENAI_API_URL = "https://api.openai.com/v1/chat/completions"
+
+HF_API_KEY = os.getenv("HF_API_KEY")
+HF_API_URL = "https://api-inference.huggingface.co/models"
+HF_LABEL_MODEL = os.getenv("HF_LABEL_MODEL", "google/vit-large-patch16-224")
+HF_OBJECT_MODEL = os.getenv("HF_OBJECT_MODEL", "facebook/detr-resnet-50")
+HF_DESCRIBE_MODEL = os.getenv("HF_DESCRIBE_MODEL", "Salesforce/blip-image-captioning-large")
+
+DEFAULT_PROVIDER = os.getenv("AI_PROVIDER", "auto").lower().strip()
+VALID_PROVIDERS = {"auto", "openai", "huggingface"}
 VALID_MODES = {"labels", "objects", "describe"}
 ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp"}
 
@@ -34,6 +43,11 @@ def normalize_mode(value):
     return mode if mode in VALID_MODES else "labels"
 
 
+def normalize_provider(value):
+    provider = (value or DEFAULT_PROVIDER or "auto").lower().strip()
+    return provider if provider in VALID_PROVIDERS else "auto"
+
+
 def image_to_data_url(image_bytes, mime_type):
     encoded_image = base64.b64encode(image_bytes).decode("utf-8")
     safe_mime_type = mime_type if mime_type in ALLOWED_IMAGE_TYPES else "image/jpeg"
@@ -54,6 +68,14 @@ def extract_json(content):
         raise
 
 
+def clamp_confidence(confidence):
+    try:
+        score = round(float(confidence), 3)
+    except (TypeError, ValueError):
+        score = 0.5
+    return max(0, min(score, 1))
+
+
 def normalize_labels(items):
     labels = []
     for item in items or []:
@@ -62,21 +84,17 @@ def normalize_labels(items):
             confidence = 0.5
         elif isinstance(item, dict):
             label = str(item.get("label") or item.get("name") or "").strip()
-            confidence = item.get("confidence", 0.5)
+            confidence = item.get("confidence", item.get("score", 0.5))
         else:
             continue
 
         if not label:
             continue
 
-        try:
-            confidence = round(float(confidence), 3)
-        except (TypeError, ValueError):
-            confidence = 0.5
-
+        confidence = clamp_confidence(confidence)
         labels.append({
-            "label": label,
-            "confidence": max(0, min(confidence, 1)),
+            "label": label.split(",")[0].strip(),
+            "confidence": confidence,
             "tier": confidence_tier(confidence)
         })
 
@@ -93,7 +111,7 @@ def normalize_objects(items):
         elif isinstance(item, dict):
             name = str(item.get("name") or item.get("label") or "").strip()
             count = item.get("count", 1)
-            confidence = item.get("confidence", 0.5)
+            confidence = item.get("confidence", item.get("score", 0.5))
         else:
             continue
 
@@ -105,15 +123,10 @@ def normalize_objects(items):
         except (TypeError, ValueError):
             count = 1
 
-        try:
-            confidence = round(float(confidence), 3)
-        except (TypeError, ValueError):
-            confidence = 0.5
-
         objects.append({
             "name": name,
             "count": count,
-            "confidence": max(0, min(confidence, 1))
+            "confidence": clamp_confidence(confidence)
         })
 
     return objects[:12]
@@ -121,7 +134,7 @@ def normalize_objects(items):
 
 def analyze_image_openai(image_bytes, mime_type, mode):
     if not OPENAI_API_KEY:
-        raise RuntimeError("OPENAI_API_KEY is not configured. Add it in Render environment variables. If you reused the old slot, HF_API_KEY also works as a temporary fallback.")
+        raise RuntimeError("OPENAI_API_KEY is not configured.")
 
     prompt = (
         "Analyze this image for an image label generator app. Return only JSON with this exact shape: "
@@ -184,6 +197,76 @@ def analyze_image_openai(image_bytes, mime_type, mode):
     return normalize_labels(parsed.get("labels"))
 
 
+def call_huggingface_model(model, image_bytes):
+    if not HF_API_KEY:
+        raise RuntimeError("HF_API_KEY is not configured.")
+
+    response = requests.post(
+        f"{HF_API_URL}/{model}",
+        headers={"Authorization": f"Bearer {HF_API_KEY}"},
+        data=image_bytes,
+        timeout=60
+    )
+
+    if response.status_code >= 400:
+        try:
+            payload = response.json()
+            error_message = payload.get("error", response.text) if isinstance(payload, dict) else response.text
+        except ValueError:
+            error_message = response.text
+        raise RuntimeError(f"Hugging Face request failed: {error_message[:300]}")
+
+    payload = response.json()
+    if isinstance(payload, dict) and payload.get("error"):
+        raise RuntimeError(f"Hugging Face model error: {str(payload['error'])[:300]}")
+    return payload
+
+
+def analyze_image_huggingface(image_bytes, mode):
+    if mode == "objects":
+        payload = call_huggingface_model(HF_OBJECT_MODEL, image_bytes)
+        return normalize_objects(payload)
+
+    if mode == "describe":
+        payload = call_huggingface_model(HF_DESCRIBE_MODEL, image_bytes)
+        if isinstance(payload, list) and payload:
+            first = payload[0]
+            if isinstance(first, dict):
+                return str(first.get("generated_text") or first.get("label") or "No description returned.")
+            return str(first)
+        if isinstance(payload, dict):
+            return str(payload.get("generated_text") or payload.get("label") or "No description returned.")
+        return "No description returned."
+
+    payload = call_huggingface_model(HF_LABEL_MODEL, image_bytes)
+    return normalize_labels(payload)
+
+
+def analyze_image(image_bytes, mime_type, mode, provider):
+    if provider == "openai":
+        return analyze_image_openai(image_bytes, mime_type, mode), "openai"
+
+    if provider == "huggingface":
+        return analyze_image_huggingface(image_bytes, mode), "huggingface"
+
+    errors = []
+    if OPENAI_API_KEY:
+        try:
+            return analyze_image_openai(image_bytes, mime_type, mode), "openai"
+        except RuntimeError as exc:
+            errors.append(str(exc))
+
+    if HF_API_KEY:
+        try:
+            return analyze_image_huggingface(image_bytes, mode), "huggingface"
+        except RuntimeError as exc:
+            errors.append(str(exc))
+
+    if errors:
+        raise RuntimeError("Auto provider failed. " + " | ".join(errors[-2:]))
+    raise RuntimeError("No AI provider is configured. Add OPENAI_API_KEY and/or HF_API_KEY in Render environment variables.")
+
+
 @app.route("/")
 def index():
     try:
@@ -208,8 +291,9 @@ def upload():
             return jsonify({"error": f"Unsupported type: {image.content_type}"}), 415
 
         mode = normalize_mode(request.args.get("mode"))
+        provider = normalize_provider(request.args.get("provider"))
         image_bytes = image.read()
-        results = analyze_image_openai(image_bytes, image.content_type, mode)
+        results, used_provider = analyze_image(image_bytes, image.content_type, mode, provider)
         record_id = save_result(filename=image.filename, gcs_url="local", labels=results, mode=mode)
 
         return jsonify({
@@ -217,6 +301,7 @@ def upload():
             "id": record_id,
             "filename": image.filename,
             "mode": mode,
+            "provider": used_provider,
             "results": results
         }), 200
 
@@ -249,7 +334,20 @@ def history():
 
 @app.route("/health", methods=["GET"])
 def health():
-    return jsonify({"status": "healthy", "provider": "openai", "model": OPENAI_MODEL}), 200
+    return jsonify({
+        "status": "healthy",
+        "default_provider": DEFAULT_PROVIDER,
+        "providers": {
+            "openai": bool(OPENAI_API_KEY),
+            "huggingface": bool(HF_API_KEY)
+        },
+        "models": {
+            "openai": OPENAI_MODEL,
+            "hf_labels": HF_LABEL_MODEL,
+            "hf_objects": HF_OBJECT_MODEL,
+            "hf_describe": HF_DESCRIBE_MODEL
+        }
+    }), 200
 
 
 try:

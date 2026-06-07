@@ -7,9 +7,17 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: 3.11
+      - key: AI_PROVIDER
+        value: auto
       - key: OPENAI_MODEL
         value: gpt-4o-mini
       - key: OPENAI_API_KEY
         sync: false
       - key: HF_API_KEY
         sync: false
+      - key: HF_LABEL_MODEL
+        value: google/vit-large-patch16-224
+      - key: HF_OBJECT_MODEL
+        value: facebook/detr-resnet-50
+      - key: HF_DESCRIBE_MODEL
+        value: Salesforce/blip-image-captioning-large
