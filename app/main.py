@@ -5,6 +5,7 @@ import json
 import requests
 from dotenv import load_dotenv
 from db import init_db, save_result, get_all_results
+from object_catalog import analyze_image_local
 
 load_dotenv()
 app = Flask(__name__)
@@ -20,7 +21,7 @@ HF_OBJECT_MODEL = os.getenv("HF_OBJECT_MODEL", "facebook/detr-resnet-50")
 HF_DESCRIBE_MODEL = os.getenv("HF_DESCRIBE_MODEL", "Salesforce/blip-image-captioning-large")
 
 DEFAULT_PROVIDER = os.getenv("AI_PROVIDER", "auto").lower().strip()
-VALID_PROVIDERS = {"auto", "openai", "huggingface"}
+VALID_PROVIDERS = {"auto", "openai", "huggingface", "local"}
 VALID_MODES = {"labels", "objects", "describe"}
 ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp"}
 
@@ -242,12 +243,15 @@ def analyze_image_huggingface(image_bytes, mode):
     return normalize_labels(payload)
 
 
-def analyze_image(image_bytes, mime_type, mode, provider):
+def analyze_image(image_bytes, mime_type, mode, provider, filename=""):
     if provider == "openai":
         return analyze_image_openai(image_bytes, mime_type, mode), "openai"
 
     if provider == "huggingface":
         return analyze_image_huggingface(image_bytes, mode), "huggingface"
+
+    if provider == "local":
+        return analyze_image_local(image_bytes, filename, mode), "local"
 
     errors = []
     if OPENAI_API_KEY:
@@ -262,9 +266,14 @@ def analyze_image(image_bytes, mime_type, mode, provider):
         except RuntimeError as exc:
             errors.append(str(exc))
 
+    try:
+        return analyze_image_local(image_bytes, filename, mode), "local"
+    except Exception as exc:
+        errors.append(f"Local fallback failed: {exc}")
+
     if errors:
-        raise RuntimeError("Auto provider failed. " + " | ".join(errors[-2:]))
-    raise RuntimeError("No AI provider is configured. Add OPENAI_API_KEY and/or HF_API_KEY in Render environment variables.")
+        raise RuntimeError("All providers failed. " + " | ".join(errors[-3:]))
+    raise RuntimeError("No provider returned results.")
 
 
 @app.route("/")
@@ -293,8 +302,12 @@ def upload():
         mode = normalize_mode(request.args.get("mode"))
         provider = normalize_provider(request.args.get("provider"))
         image_bytes = image.read()
-        results, used_provider = analyze_image(image_bytes, image.content_type, mode, provider)
-        record_id = save_result(filename=image.filename, gcs_url="local", labels=results, mode=mode)
+        results, used_provider = analyze_image(image_bytes, image.content_type, mode, provider, image.filename)
+        record_id = None
+        try:
+            record_id = save_result(filename=image.filename, gcs_url="local", labels=results, mode=mode)
+        except Exception as exc:
+            print(f"Database save skipped: {exc}")
 
         return jsonify({
             "success": True,
@@ -339,7 +352,8 @@ def health():
         "default_provider": DEFAULT_PROVIDER,
         "providers": {
             "openai": bool(OPENAI_API_KEY),
-            "huggingface": bool(HF_API_KEY)
+            "huggingface": bool(HF_API_KEY),
+            "local": True
         },
         "models": {
             "openai": OPENAI_MODEL,
